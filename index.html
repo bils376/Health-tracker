@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0" />
+  <meta name="theme-color" content="#ffffff" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <title>Health Tracker</title>
+  <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@2.44.0/tabler-icons.min.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <div class="app">
+
+    <!-- Header -->
+    <header class="header">
+      <div class="header-left">
+        <span class="header-icon">💪</span>
+        <span class="header-title">Health Tracker</span>
+      </div>
+      <div class="header-date" id="header-date"></div>
+    </header>
+
+    <!-- Nav -->
+    <nav class="nav" id="nav">
+      <button class="nav-btn active" data-tab="dashboard"><i class="ti ti-layout-dashboard"></i><span>Home</span></button>
+      <button class="nav-btn" data-tab="nutrition"><i class="ti ti-salad"></i><span>Food</span></button>
+      <button class="nav-btn" data-tab="exercise"><i class="ti ti-run"></i><span>Exercise</span></button>
+      <button class="nav-btn" data-tab="sleep"><i class="ti ti-moon"></i><span>Sleep</span></button>
+      <button class="nav-btn" data-tab="mood"><i class="ti ti-mood-smile"></i><span>Mood</span></button>
+      <button class="nav-btn" data-tab="meds"><i class="ti ti-pill"></i><span>Meds</span></button>
+      <button class="nav-btn" data-tab="ai"><i class="ti ti-sparkles"></i><span>AI Coach</span></button>
+    </nav>
+
+    <!-- Sections -->
+    <main class="main">
+
+      <!-- DASHBOARD -->
+      <section class="section active" id="tab-dashboard">
+        <div class="metric-grid">
+          <div class="metric"><div class="metric-label">Calories</div><div class="metric-value" id="d-cal">—</div><div class="metric-unit">kcal today</div></div>
+          <div class="metric"><div class="metric-label">Water</div><div class="metric-value" id="d-water">—</div><div class="metric-unit">glasses</div></div>
+          <div class="metric"><div class="metric-label">Sleep</div><div class="metric-value" id="d-sleep">—</div><div class="metric-unit">hrs last night</div></div>
+          <div class="metric"><div class="metric-label">Weight</div><div class="metric-value" id="d-weight">—</div><div class="metric-unit">kg</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Today's log</div>
+          <div id="today-log"><div class="empty-state">Nothing logged yet today. Start tracking!</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Weight trend</div>
+          <div class="chart-wrap"><canvas id="weightChart"></canvas></div>
+        </div>
+      </section>
+
+      <!-- NUTRITION -->
+      <section class="section" id="tab-nutrition">
+        <div class="card">
+          <div class="card-title">Log a meal</div>
+          <div class="form-group"><label>Meal type</label>
+            <div class="pill-row" id="meal-type-pills">
+              <button class="pill active" onclick="selectPill(this,'meal-type-pills')">Breakfast</button>
+              <button class="pill" onclick="selectPill(this,'meal-type-pills')">Lunch</button>
+              <button class="pill" onclick="selectPill(this,'meal-type-pills')">Dinner</button>
+              <button class="pill" onclick="selectPill(this,'meal-type-pills')">Snack</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Calories</label><input type="number" id="meal-cal" placeholder="e.g. 550" /></div>
+            <div class="form-group"><label>Protein (g)</label><input type="number" id="meal-protein" placeholder="e.g. 30" /></div>
+          </div>
+          <div class="form-group"><label>Notes</label><input type="text" id="meal-notes" placeholder="e.g. Chicken salad" /></div>
+          <button class="primary-btn" onclick="logMeal()">Log meal</button>
+        </div>
+        <div class="card">
+          <div class="card-title">Today's intake</div>
+          <div class="bar-wrap"><div class="bar-label"><span>Calories</span><span id="cal-bar-label">0 / 2200</span></div><div class="bar-track"><div class="bar-fill green" id="cal-bar" style="width:0%"></div></div></div>
+          <div class="bar-wrap"><div class="bar-label"><span>Protein</span><span id="protein-bar-label">0g / 100g</span></div><div class="bar-track"><div class="bar-fill teal" id="protein-bar" style="width:0%"></div></div></div>
+          <div id="meal-history"><div class="empty-state">No meals logged today.</div></div>
+        </div>
+      </section>
+
+      <!-- EXERCISE -->
+      <section class="section" id="tab-exercise">
+        <div class="card">
+          <div class="card-title">Log workout</div>
+          <div class="form-group"><label>Activity</label>
+            <div class="pill-row" id="activity-pills">
+              <button class="pill active" onclick="selectPill(this,'activity-pills')">Running</button>
+              <button class="pill" onclick="selectPill(this,'activity-pills')">Weights</button>
+              <button class="pill" onclick="selectPill(this,'activity-pills')">Cycling</button>
+              <button class="pill" onclick="selectPill(this,'activity-pills')">Yoga</button>
+              <button class="pill" onclick="selectPill(this,'activity-pills')">Swimming</button>
+              <button class="pill" onclick="selectPill(this,'activity-pills')">Walking</button>
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Duration (mins)</label><input type="number" id="ex-duration" placeholder="45" /></div>
+            <div class="form-group"><label>Intensity</label>
+              <div class="pill-row" id="intensity-pills">
+                <button class="pill" onclick="selectPill(this,'intensity-pills')">Low</button>
+                <button class="pill active" onclick="selectPill(this,'intensity-pills')">Medium</button>
+                <button class="pill" onclick="selectPill(this,'intensity-pills')">High</button>
+              </div>
+            </div>
+          </div>
+          <div class="form-group"><label>Notes</label><input type="text" id="ex-notes" placeholder="e.g. 5km run, felt great" /></div>
+          <button class="primary-btn" onclick="logExercise()">Log workout</button>
+        </div>
+        <div class="card">
+          <div class="card-title">This week</div>
+          <div class="chart-wrap"><canvas id="exerciseChart"></canvas></div>
+        </div>
+      </section>
+
+      <!-- SLEEP -->
+      <section class="section" id="tab-sleep">
+        <div class="card">
+          <div class="card-title">Log sleep</div>
+          <div class="form-row">
+            <div class="form-group"><label>Bedtime</label><input type="time" id="sleep-bed" value="22:30" /></div>
+            <div class="form-group"><label>Wake time</label><input type="time" id="sleep-wake" value="06:45" /></div>
+          </div>
+          <div class="form-group"><label>Quality</label>
+            <div class="pill-row" id="sleep-quality-pills">
+              <button class="pill" onclick="selectPill(this,'sleep-quality-pills')">Poor</button>
+              <button class="pill active" onclick="selectPill(this,'sleep-quality-pills')">Fair</button>
+              <button class="pill" onclick="selectPill(this,'sleep-quality-pills')">Good</button>
+              <button class="pill" onclick="selectPill(this,'sleep-quality-pills')">Excellent</button>
+            </div>
+          </div>
+          <div class="form-group"><label>Notes</label><input type="text" id="sleep-notes" placeholder="e.g. Woke up once" /></div>
+          <button class="primary-btn" onclick="logSleep()">Log sleep</button>
+        </div>
+        <div class="card">
+          <div class="card-title">Last 7 nights</div>
+          <div class="chart-wrap"><canvas id="sleepChart"></canvas></div>
+        </div>
+      </section>
+
+      <!-- MOOD -->
+      <section class="section" id="tab-mood">
+        <div class="card">
+          <div class="card-title">How are you feeling?</div>
+          <div class="mood-grid" id="mood-grid">
+            <button class="mood-btn" onclick="selectMood(this,'😫','Awful')" title="Awful">😫</button>
+            <button class="mood-btn" onclick="selectMood(this,'😞','Bad')" title="Bad">😞</button>
+            <button class="mood-btn" onclick="selectMood(this,'😐','Okay')" title="Okay">😐</button>
+            <button class="mood-btn" onclick="selectMood(this,'😊','Good')" title="Good">😊</button>
+            <button class="mood-btn" onclick="selectMood(this,'😄','Great')" title="Great">😄</button>
+          </div>
+          <div style="display:flex;justify-content:space-between;font-size:11px;color:#888;margin-bottom:1rem;">
+            <span>Awful</span><span>Bad</span><span>Okay</span><span>Good</span><span>Great</span>
+          </div>
+          <div class="form-group"><label>Energy level</label>
+            <div class="pill-row" id="energy-pills">
+              <button class="pill" onclick="selectPill(this,'energy-pills')">Exhausted</button>
+              <button class="pill active" onclick="selectPill(this,'energy-pills')">Low</button>
+              <button class="pill" onclick="selectPill(this,'energy-pills')">Moderate</button>
+              <button class="pill" onclick="selectPill(this,'energy-pills')">High</button>
+            </div>
+          </div>
+          <div class="form-group"><label>Notes</label><textarea id="mood-notes" rows="2" placeholder="Anything on your mind?"></textarea></div>
+          <button class="primary-btn" onclick="logMood()">Log mood</button>
+        </div>
+      </section>
+
+      <!-- MEDS -->
+      <section class="section" id="tab-meds">
+        <div class="card">
+          <div class="card-title">Medications & supplements</div>
+          <div id="med-list"></div>
+          <button class="secondary-btn" onclick="showAddMed()">+ Add medication</button>
+          <div id="add-med-form" style="display:none; margin-top:1rem;">
+            <div class="form-row">
+              <div class="form-group"><label>Name</label><input type="text" id="med-name" placeholder="e.g. Vitamin D" /></div>
+              <div class="form-group"><label>Dose</label><input type="text" id="med-dose" placeholder="e.g. 1000 IU" /></div>
+            </div>
+            <div class="form-group"><label>Time</label>
+              <div class="pill-row" id="med-time-pills">
+                <button class="pill active" onclick="selectPill(this,'med-time-pills')">Morning</button>
+                <button class="pill" onclick="selectPill(this,'med-time-pills')">Afternoon</button>
+                <button class="pill" onclick="selectPill(this,'med-time-pills')">Evening</button>
+                <button class="pill" onclick="selectPill(this,'med-time-pills')">Night</button>
+              </div>
+            </div>
+            <button class="primary-btn" onclick="addMed()">Add</button>
+          </div>
+        </div>
+        <div class="card">
+          <div class="card-title">Water intake</div>
+          <div class="water-dots" id="water-dots"></div>
+          <div id="water-count" style="font-size:13px;color:#888;margin-top:4px;">0 of 8 glasses</div>
+        </div>
+        <div class="card">
+          <div class="card-title">Weight</div>
+          <div class="form-row">
+            <div class="form-group"><label>Today's weight (kg)</label><input type="number" id="weight-input" placeholder="e.g. 74.5" step="0.1" /></div>
+          </div>
+          <button class="primary-btn" onclick="logWeight()">Log weight</button>
+        </div>
+      </section>
+
+      <!-- AI COACH -->
+      <section class="section" id="tab-ai">
+        <div class="card" id="api-key-card" style="display:none;">
+          <div class="card-title">⚙️ Set up AI Coach</div>
+          <p style="font-size:14px;color:#666;margin-bottom:1rem;line-height:1.5;">Enter your Anthropic API key to enable AI coaching. It's stored only on your device.</p>
+          <div class="form-group"><label>API Key</label><input type="text" id="api-key-input" placeholder="sk-ant-..." /></div>
+          <button class="primary-btn" onclick="saveApiKey()">Save key</button>
+          <p style="font-size:12px;color:#999;margin-top:0.75rem;">Get a key at <a href="https://console.anthropic.com" style="color:#1D9E75;">console.anthropic.com</a></p>
+        </div>
+        <div class="card" id="ai-chat-card">
+          <div class="card-title">AI health coach</div>
+          <div class="ai-box" id="ai-response">
+            <div class="ai-msg">👋 Hi! I'm your AI health coach. Ask me anything about your health data and I'll give you personalised insights!</div>
+          </div>
+          <div class="ai-input-row">
+            <input type="text" id="ai-question" placeholder="Ask about your health..." />
+            <button onclick="askAI()"><i class="ti ti-send"></i></button>
+          </div>
+          <div style="margin-top:0.75rem;">
+            <div style="font-size:12px;color:#888;margin-bottom:0.5rem;">Quick questions</div>
+            <div class="pill-row" style="flex-wrap:wrap;">
+              <button class="pill" onclick="doAI('How is my nutrition this week?')">Nutrition check</button>
+              <button class="pill" onclick="doAI('Am I sleeping enough for my exercise level?')">Sleep & exercise</button>
+              <button class="pill" onclick="doAI('Give me a health summary and top 3 tips.')">Weekly summary</button>
+              <button class="pill" onclick="doAI('What patterns do you see in my mood?')">Mood patterns</button>
+            </div>
+          </div>
+          <div style="margin-top:1rem;padding-top:0.75rem;border-top:0.5px solid #eee;">
+            <button class="secondary-btn" onclick="changeApiKey()" style="font-size:12px;">Change API key</button>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
