@@ -794,7 +794,7 @@ Be motivating and reference their rank. 2-4 sentences, plain text only, no markd
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 400, system: sys, messages: chatHistory })
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 400, system: sys, messages: chatHistory })
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message);
@@ -831,7 +831,7 @@ Each item in the array is one distinct food/dish with these fields:
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
-      body: JSON.stringify({ model: 'claude-haiku-4-5-20251001', max_tokens: 800, system: sys, messages: [{ role: 'user', content: description }] })
+      body: JSON.stringify({ model: 'claude-sonnet-4-6', max_tokens: 800, system: sys, messages: [{ role: 'user', content: description }] })
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message);
