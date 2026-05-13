@@ -31,6 +31,7 @@
       <button class="nav-btn" data-tab="mood"><i class="ti ti-mood-smile"></i><span>Mood</span></button>
       <button class="nav-btn" data-tab="meds"><i class="ti ti-pill"></i><span>Meds</span></button>
       <button class="nav-btn" data-tab="ai"><i class="ti ti-sparkles"></i><span>AI Coach</span></button>
+      <button class="nav-btn" data-tab="rpg"><i class="ti ti-sword"></i><span>Hero</span></button>
     </nav>
 
     <!-- Sections -->
@@ -38,6 +39,7 @@
 
       <!-- DASHBOARD -->
       <section class="section active" id="tab-dashboard">
+        <div class="card" id="rpg-bar" style="margin-bottom:1rem;"></div>
         <div class="metric-grid">
           <div class="metric"><div class="metric-label">Calories</div><div class="metric-value" id="d-cal">—</div><div class="metric-unit">kcal today</div></div>
           <div class="metric"><div class="metric-label">Water</div><div class="metric-value" id="d-water">—</div><div class="metric-unit">glasses</div></div>
@@ -232,6 +234,19 @@
           <div style="margin-top:1rem;padding-top:0.75rem;border-top:0.5px solid #eee;">
             <button class="secondary-btn" onclick="changeApiKey()" style="font-size:12px;">Change API key</button>
           </div>
+        </div>
+      </section>
+
+      <!-- RPG -->
+      <section class="section" id="tab-rpg">
+        <div class="card" id="rpg-bar-full"></div>
+        <div class="card">
+          <div class="card-title">⚔️ Daily quests</div>
+          <div id="quests-list"><div class="empty-state">Loading quests...</div></div>
+        </div>
+        <div class="card">
+          <div class="card-title">🏆 Achievements</div>
+          <div id="achievements-list"><div class="empty-state">Loading...</div></div>
         </div>
       </section>
 
