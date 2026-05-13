@@ -212,7 +212,14 @@ function showToast(msg) {
 }
 
 // ── DATA ───────────────────────────────────────────────
-const todayKey = () => new Date().toISOString().slice(0,10);
+// Use LOCAL date not UTC — critical for NZ timezone (UTC+12/13)
+const todayKey = () => {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+};
 function loadData() { try { return JSON.parse(localStorage.getItem('ht_data')||'{}'); } catch { return {}; } }
 function saveData(d) { localStorage.setItem('ht_data', JSON.stringify(d)); }
 function todayData() {
@@ -232,7 +239,7 @@ document.querySelectorAll('#nav .nav-btn').forEach(btn => {
     if (t==='dashboard') { refreshDashboard(); refreshRPGBar(); }
     if (t==='meds')      refreshMeds();
     if (t==='ai')        refreshAITab();
-    if (t==='nutrition') refreshNutrition();
+    if (t==='nutrition') refreshNutrition(); // keeps diaryDate as-is
     if (t==='sleep')     drawSleepChart();
     if (t==='exercise')  drawExerciseChart();
     if (t==='bp')        { refreshBPHistory(); drawBPCharts(); }
@@ -270,7 +277,10 @@ function getDiaryDay(date) {
 function changeDate(dir) {
   const d = new Date(diaryDate + 'T00:00');
   d.setDate(d.getDate() + dir);
-  const newKey = d.toISOString().slice(0, 10);
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const newKey = `${year}-${month}-${day}`;
   if (newKey > todayKey()) return;
   diaryDate = newKey;
   refreshNutrition();
@@ -1005,7 +1015,7 @@ function drawLineChart(id,labels,values,color,minY,maxY){
 }
 
 function getLast14Days(){
-  return Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-13+i);return d.toISOString().slice(0,10);});
+  return Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-13+i);return localDateKey(d);});
 }
 
 // ── DOCTOR REPORT ──────────────────────────────────────
@@ -1476,7 +1486,8 @@ function setVoiceStatus(msg) {
 }
 
 
-function getLast7Days(){return Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return d.toISOString().slice(0,10);});}
+function localDateKey(d){return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}
+function getLast7Days(){return Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return localDateKey(d);});}
 
 // ── INIT ───────────────────────────────────────────────
 initRPG();
