@@ -207,9 +207,26 @@ textarea { resize: none; }
 
 .chart-wrap { position: relative; width: 100%; height: 160px; }
 
-.log-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 0.5px solid var(--border2); font-size: 14px; }
+.nutrition-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 0.5rem; }
+.nutrition-cell { background: var(--bg); border-radius: var(--radius-sm); padding: 8px 10px; text-align: center; }
+.nutrition-cell-label { font-size: 10px; color: var(--text2); margin-bottom: 2px; text-transform: uppercase; letter-spacing: 0.03em; }
+.nutrition-cell-value { font-size: 16px; font-weight: 600; color: var(--text); }
+.nutrition-cell-unit { font-size: 10px; color: var(--text3); }
+.food-result { padding: 10px 12px; border-radius: var(--radius-sm); border: 0.5px solid var(--border); margin-bottom: 6px; cursor: pointer; transition: all 0.15s; }
+.food-result:hover { background: var(--bg); border-color: var(--green); }
+.food-result-name { font-size: 14px; font-weight: 500; color: var(--text); }
+.food-result-meta { font-size: 12px; color: var(--text2); margin-top: 2px; }
+.meal-group { margin-bottom: 1rem; }
+.meal-group-header { font-size: 13px; font-weight: 600; color: var(--text2); padding: 8px 0 6px; border-bottom: 0.5px solid var(--border); margin-bottom: 4px; display: flex; justify-content: space-between; }
+.diary-item { display: flex; align-items: flex-start; gap: 10px; padding: 8px 0; border-bottom: 0.5px solid var(--border2); }
+.diary-item:last-child { border-bottom: none; }
+.diary-item-info { flex: 1; }
+.diary-item-name { font-size: 14px; font-weight: 500; color: var(--text); }
+.diary-item-macros { font-size: 11px; color: var(--text2); margin-top: 2px; }
+.diary-item-cal { font-size: 13px; font-weight: 600; color: var(--text); white-space: nowrap; }
+.delete-btn { background: none; border: none; color: var(--text3); cursor: pointer; font-size: 16px; padding: 0 4px; line-height: 1; }
 .log-item:last-child { border-bottom: none; }
-.log-item-left { flex: 1; }
+.log-item { display: flex; align-items: center; justify-content: space-between; padding: 10px 0; border-bottom: 0.5px solid var(--border2); font-size: 14px; }
 .log-item-name { font-weight: 500; color: var(--text); }
 .log-item-sub { font-size: 12px; color: var(--text2); margin-top: 2px; }
 .log-item-val { font-size: 13px; color: var(--text2); }
@@ -221,7 +238,11 @@ textarea { resize: none; }
 
 .empty-state { font-size: 14px; color: var(--text3); text-align: center; padding: 1rem 0; }
 
-.ai-box {
+.ai-bubble { font-size: 14px; line-height: 1.6; padding: 10px 14px; border-radius: 14px; max-width: 92%; }
+.ai-bubble-bot { background: var(--bg); color: var(--text); align-self: flex-start; border-bottom-left-radius: 4px; }
+.ai-bubble-user { background: var(--green); color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+.ai-bubble-action { background: #E6F1FB; color: #185FA5; align-self: flex-start; border-bottom-left-radius: 4px; font-size: 13px; }
+.ai-bubble-loading { background: var(--bg); color: var(--text2); align-self: flex-start; border-bottom-left-radius: 4px; font-style: italic; }
   background: var(--bg);
   border-radius: var(--radius-sm);
   padding: 1rem;
@@ -232,14 +253,7 @@ textarea { resize: none; }
 .ai-msg.loading { color: var(--text3); }
 .ai-input-row { display: flex; gap: 8px; }
 .ai-input-row input { flex: 1; }
-.ai-input-row button {
-  padding: 10px 14px;
-  background: var(--green);
-  color: white;
-  border: none;
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  font-size: 18px;
-  display: flex;
-  align-items: center;
-}
+.ai-input-row button { padding: 10px 14px; border-radius: var(--radius-sm); cursor: pointer; font-size: 18px; display: flex; align-items: center; }
+.ai-input-row button:last-child { background: var(--green); color: white; border: none; }
+@keyframes pulse-ring { 0% { box-shadow: 0 0 0 0 rgba(211,68,48,0.4); } 70% { box-shadow: 0 0 0 10px rgba(211,68,48,0); } 100% { box-shadow: 0 0 0 0 rgba(211,68,48,0); } }
+.voice-listening { background: #FCEBEB !important; border-color: #c0392b !important; color: #c0392b !important; animation: pulse-ring 1.2s infinite; }

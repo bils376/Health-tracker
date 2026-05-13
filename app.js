@@ -235,6 +235,7 @@ document.querySelectorAll('#nav .nav-btn').forEach(btn => {
     if (t==='nutrition') refreshNutrition();
     if (t==='sleep')     drawSleepChart();
     if (t==='exercise')  drawExerciseChart();
+    if (t==='bp')        { refreshBPHistory(); drawBPCharts(); }
     if (t==='rpg')       { refreshRPGBar(); refreshQuestsTab(); refreshAchievementsTab(); }
   });
 });
@@ -252,37 +253,310 @@ function selectMood(el,emoji,label) {
   selectedMoodEmoji=emoji; selectedMoodLabel=label;
 }
 
-// ── NUTRITION ──────────────────────────────────────────
-function logMeal() {
-  const cal=parseInt(document.getElementById('meal-cal').value)||0;
-  const protein=parseInt(document.getElementById('meal-protein').value)||0;
-  const notes=document.getElementById('meal-notes').value.trim();
-  const type=document.querySelector('#meal-type-pills .pill.active')?.textContent||'Meal';
-  if (!cal&&!notes){alert('Enter calories or a description.');return;}
-  const {data,today,key}=todayData();
-  const isFirst = today.meals.length===0 && !getRPG().achievements.includes('first_log');
-  today.meals.push({type,cal,protein,notes,time:new Date().toLocaleTimeString('en-NZ',{hour:'2-digit',minute:'2-digit'})});
-  data[key]=today; saveData(data);
+// ── FOOD DIARY ─────────────────────────────────────────
+let diaryDate = todayKey();
+let currentFoodData = null; // nutritionix result per 100g
+let searchDebounce = null;
+
+function getFoodDiary() { try { return JSON.parse(localStorage.getItem('ht_diary') || '{}'); } catch { return {}; } }
+function saveFoodDiary(d) { localStorage.setItem('ht_diary', JSON.stringify(d)); }
+
+function getDiaryDay(date) {
+  const d = getFoodDiary();
+  if (!d[date]) d[date] = [];
+  return d[date];
+}
+
+function changeDate(dir) {
+  const d = new Date(diaryDate + 'T00:00');
+  d.setDate(d.getDate() + dir);
+  const newKey = d.toISOString().slice(0, 10);
+  if (newKey > todayKey()) return;
+  diaryDate = newKey;
+  refreshNutrition();
+}
+
+async function searchFood() {
+  const q = document.getElementById('food-search-input').value.trim();
+  if (!q) return;
+  const results = document.getElementById('food-search-results');
+  results.innerHTML = '<div style="font-size:13px;color:#888;padding:8px 0;">Searching...</div>';
+  clearFoodEntry();
+
+  try {
+    // Use Open Food Facts free API — no key needed
+    const resp = await fetch(`https://world.openfoodfacts.org/cgi/search.pl?search_terms=${encodeURIComponent(q)}&search_simple=1&action=process&json=1&page_size=8&fields=product_name,brands,nutriments,serving_size,quantity`);
+    const data = await resp.json();
+    const products = (data.products || []).filter(p => p.product_name && p.nutriments?.['energy-kcal_100g'] != null);
+
+    if (!products.length) {
+      results.innerHTML = '<div style="font-size:13px;color:#888;padding:8px 0;">No results. Try manual entry below.</div>';
+      return;
+    }
+
+    results.innerHTML = products.slice(0, 6).map((p, i) => {
+      const cal = Math.round(p.nutriments['energy-kcal_100g'] || 0);
+      const prot = Math.round((p.nutriments['proteins_100g'] || 0) * 10) / 10;
+      const brand = p.brands ? p.brands.split(',')[0].trim() : '';
+      return `<div class="food-result" onclick="selectFood(${i})">
+        <div class="food-result-name">${p.product_name}${brand ? ' <span style="font-weight:400;color:var(--text2);">· ' + brand + '</span>' : ''}</div>
+        <div class="food-result-meta">${cal} kcal · ${prot}g protein per 100g${p.serving_size ? ' · Serving: ' + p.serving_size : ''}</div>
+      </div>`;
+    }).join('');
+
+    // Store results for selection
+    window._searchResults = products.slice(0, 6);
+
+  } catch (e) {
+    results.innerHTML = '<div style="font-size:13px;color:#c00;padding:8px 0;">Search failed. Check your connection or use manual entry.</div>';
+  }
+}
+
+function selectFood(i) {
+  const p = window._searchResults[i];
+  const n = p.nutriments;
+  currentFoodData = {
+    name: p.product_name,
+    brand: p.brands ? p.brands.split(',')[0].trim() : '',
+    per100: {
+      cal:    Math.round(n['energy-kcal_100g'] || 0),
+      protein:Math.round((n['proteins_100g'] || 0) * 10) / 10,
+      carbs:  Math.round((n['carbohydrates_100g'] || 0) * 10) / 10,
+      fat:    Math.round((n['fat_100g'] || 0) * 10) / 10,
+      fibre:  Math.round((n['fiber_100g'] || 0) * 10) / 10,
+      sugar:  Math.round((n['sugars_100g'] || 0) * 10) / 10,
+      sodium: Math.round((n['sodium_100g'] || 0) * 1000),
+    },
+    servingSize: p.serving_size || null
+  };
+
+  document.getElementById('food-search-results').innerHTML = '';
+  document.getElementById('food-entry-form').style.display = 'block';
+  document.getElementById('manual-entry-toggle').style.display = 'none';
+  document.getElementById('food-entry-name').textContent = currentFoodData.name + (currentFoodData.brand ? ' · ' + currentFoodData.brand : '');
+  document.getElementById('food-qty').value = 100;
+  document.getElementById('food-unit').value = 'g';
+  updateServing();
+}
+
+function updateServing() {
+  if (!currentFoodData) return;
+  const qty = parseFloat(document.getElementById('food-qty').value) || 100;
+  const factor = qty / 100;
+  const n = currentFoodData.per100;
+  showNutritionPreview('nutrition-preview', {
+    cal:     Math.round(n.cal * factor),
+    protein: Math.round(n.protein * factor * 10) / 10,
+    carbs:   Math.round(n.carbs * factor * 10) / 10,
+    fat:     Math.round(n.fat * factor * 10) / 10,
+    fibre:   Math.round(n.fibre * factor * 10) / 10,
+    sugar:   Math.round(n.sugar * factor * 10) / 10,
+    sodium:  Math.round(n.sodium * factor),
+  });
+}
+
+function showNutritionPreview(elId, n) {
+  document.getElementById(elId).innerHTML = `
+    <div class="nutrition-cell"><div class="nutrition-cell-label">Calories</div><div class="nutrition-cell-value">${n.cal}</div><div class="nutrition-cell-unit">kcal</div></div>
+    <div class="nutrition-cell"><div class="nutrition-cell-label">Protein</div><div class="nutrition-cell-value">${n.protein}</div><div class="nutrition-cell-unit">g</div></div>
+    <div class="nutrition-cell"><div class="nutrition-cell-label">Carbs</div><div class="nutrition-cell-value">${n.carbs}</div><div class="nutrition-cell-unit">g</div></div>
+    <div class="nutrition-cell"><div class="nutrition-cell-label">Fat</div><div class="nutrition-cell-value">${n.fat}</div><div class="nutrition-cell-unit">g</div></div>
+    <div class="nutrition-cell"><div class="nutrition-cell-label">Fibre</div><div class="nutrition-cell-value">${n.fibre}</div><div class="nutrition-cell-unit">g</div></div>
+    <div class="nutrition-cell"><div class="nutrition-cell-label">Sugar</div><div class="nutrition-cell-value">${n.sugar}</div><div class="nutrition-cell-unit">g</div></div>
+    <div class="nutrition-cell" style="grid-column:1/-1;"><div class="nutrition-cell-label">Sodium</div><div class="nutrition-cell-value" style="font-size:14px;">${n.sodium}</div><div class="nutrition-cell-unit">mg</div></div>`;
+}
+
+function addFoodEntry() {
+  if (!currentFoodData) return;
+  const qty = parseFloat(document.getElementById('food-qty').value) || 100;
+  const unit = document.getElementById('food-unit').value;
+  const notes = document.getElementById('food-entry-notes').value.trim();
+  const mealType = document.querySelector('#meal-type-pills .pill.active')?.textContent || 'Snack';
+  const factor = qty / 100;
+  const n = currentFoodData.per100;
+
+  const entry = {
+    id: Date.now(),
+    name: currentFoodData.name,
+    brand: currentFoodData.brand,
+    mealType,
+    qty, unit,
+    notes,
+    time: new Date().toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }),
+    cal:     Math.round(n.cal * factor),
+    protein: Math.round(n.protein * factor * 10) / 10,
+    carbs:   Math.round(n.carbs * factor * 10) / 10,
+    fat:     Math.round(n.fat * factor * 10) / 10,
+    fibre:   Math.round(n.fibre * factor * 10) / 10,
+    sugar:   Math.round(n.sugar * factor * 10) / 10,
+    sodium:  Math.round(n.sodium * factor),
+  };
+
+  const diary = getFoodDiary();
+  if (!diary[diaryDate]) diary[diaryDate] = [];
+  diary[diaryDate].push(entry);
+  saveFoodDiary(diary);
+
+  // Also update old meals store for dashboard compat
+  syncDiaryToMeals(diaryDate);
+
+  const isFirst = !getRPG().achievements.includes('first_log');
   if (isFirst) unlockAchievement('first_log');
-  addXP(cal>0?15:8,'Meal logged');
-  document.getElementById('meal-cal').value='';
-  document.getElementById('meal-protein').value='';
-  document.getElementById('meal-notes').value='';
+  addXP(12, 'Food logged');
+  clearFoodEntry();
+  document.getElementById('food-search-input').value = '';
+  refreshNutrition();
+  refreshQuestsTab();
+  checkAllAchievements();
+  showToast(entry.name + ' added 🥗');
+}
+
+function addManualEntry() {
+  const name = document.getElementById('manual-name').value.trim();
+  if (!name) { alert('Enter a food name.'); return; }
+  const mealType = document.querySelector('#meal-type-pills .pill.active')?.textContent || 'Snack';
+  const entry = {
+    id: Date.now(),
+    name,
+    brand: '',
+    mealType,
+    qty: null, unit: null,
+    notes: document.getElementById('manual-notes').value.trim(),
+    time: new Date().toLocaleTimeString('en-NZ', { hour: '2-digit', minute: '2-digit' }),
+    cal:     parseInt(document.getElementById('manual-cal').value) || 0,
+    protein: parseFloat(document.getElementById('manual-protein').value) || 0,
+    carbs:   parseFloat(document.getElementById('manual-carbs').value) || 0,
+    fat:     parseFloat(document.getElementById('manual-fat').value) || 0,
+    fibre:   parseFloat(document.getElementById('manual-fibre').value) || 0,
+    sugar:   parseFloat(document.getElementById('manual-sugar').value) || 0,
+    sodium:  parseInt(document.getElementById('manual-sodium').value) || 0,
+  };
+
+  const diary = getFoodDiary();
+  if (!diary[diaryDate]) diary[diaryDate] = [];
+  diary[diaryDate].push(entry);
+  saveFoodDiary(diary);
+  syncDiaryToMeals(diaryDate);
+
+  addXP(12, 'Food logged');
+  ['manual-name','manual-cal','manual-protein','manual-carbs','manual-fat','manual-fibre','manual-sugar','manual-sodium','manual-notes'].forEach(id => { document.getElementById(id).value = ''; });
+  document.getElementById('manual-entry-form').style.display = 'none';
+  document.getElementById('manual-entry-toggle').style.display = 'block';
   refreshNutrition(); refreshQuestsTab(); checkAllAchievements();
-  showToast('Meal logged! 🥗');
+  showToast(entry.name + ' added 🥗');
+}
+
+function syncDiaryToMeals(date) {
+  // Keep old meals store in sync for dashboard/quests compatibility
+  const diary = getFoodDiary();
+  const entries = diary[date] || [];
+  const data = loadData();
+  if (!data[date]) data[date] = { meals: [], exercises: [], sleep: null, mood: null, water: 0, weight: null, meds: {} };
+  data[date].meals = entries.map(e => ({ type: e.mealType, cal: e.cal, protein: e.protein, notes: e.name, time: e.time }));
+  saveData(data);
+}
+
+function deleteDiaryEntry(date, id) {
+  const diary = getFoodDiary();
+  if (!diary[date]) return;
+  diary[date] = diary[date].filter(e => e.id !== id);
+  saveFoodDiary(diary);
+  syncDiaryToMeals(date);
+  refreshNutrition();
+}
+
+function clearFoodEntry() {
+  currentFoodData = null;
+  document.getElementById('food-entry-form').style.display = 'none';
+  document.getElementById('food-search-results').innerHTML = '';
+  document.getElementById('manual-entry-toggle').style.display = 'block';
+}
+
+function showManualEntry() {
+  const f = document.getElementById('manual-entry-form');
+  f.style.display = f.style.display === 'none' ? 'block' : 'none';
 }
 
 function refreshNutrition() {
-  const {today}=todayData();
-  const totalCal=today.meals.reduce((s,m)=>s+m.cal,0);
-  const totalProt=today.meals.reduce((s,m)=>s+m.protein,0);
-  document.getElementById('cal-bar').style.width=Math.min(100,Math.round(totalCal/2200*100))+'%';
-  document.getElementById('cal-bar-label').textContent=totalCal+' / 2200';
-  document.getElementById('protein-bar').style.width=Math.min(100,Math.round(totalProt/100*100))+'%';
-  document.getElementById('protein-bar-label').textContent=totalProt+'g / 100g';
-  const h=document.getElementById('meal-history');
-  h.innerHTML=today.meals.length?today.meals.map(m=>`<div class="log-item"><div class="log-item-left"><div class="log-item-name">${m.type}${m.notes?' — '+m.notes:''}</div><div class="log-item-sub">${m.time}</div></div><div class="log-item-val">${m.cal?m.cal+' kcal':''}</div></div>`).join(''):'<div class="empty-state">No meals logged today.</div>';
+  const entries = getDiaryDay(diaryDate);
+
+  // Date label
+  const dateLabel = document.getElementById('diary-date-label');
+  if (dateLabel) {
+    const isToday = diaryDate === todayKey();
+    const d = new Date(diaryDate + 'T00:00');
+    dateLabel.textContent = isToday ? 'Today' : d.toLocaleDateString('en-NZ', { weekday: 'short', day: 'numeric', month: 'short' });
+  }
+  const nextBtn = document.getElementById('diary-next-btn');
+  if (nextBtn) nextBtn.style.opacity = diaryDate === todayKey() ? '0.3' : '1';
+
+  // Totals
+  const totals = { cal: 0, protein: 0, carbs: 0, fat: 0, fibre: 0, sugar: 0, sodium: 0 };
+  entries.forEach(e => {
+    totals.cal     += e.cal || 0;
+    totals.protein += e.protein || 0;
+    totals.carbs   += e.carbs || 0;
+    totals.fat     += e.fat || 0;
+    totals.fibre   += e.fibre || 0;
+    totals.sugar   += e.sugar || 0;
+    totals.sodium  += e.sodium || 0;
+  });
+  Object.keys(totals).forEach(k => { totals[k] = Math.round(totals[k] * 10) / 10; });
+
+  const gridEl = document.getElementById('daily-totals-grid');
+  if (gridEl) showNutritionPreview('daily-totals-grid', totals);
+
+  const calBar = document.getElementById('cal-bar');
+  if (calBar) calBar.style.width = Math.min(100, Math.round(totals.cal / 2200 * 100)) + '%';
+  const calLabel = document.getElementById('cal-bar-label');
+  if (calLabel) calLabel.textContent = totals.cal + ' / 2200';
+  const protBar = document.getElementById('protein-bar');
+  if (protBar) protBar.style.width = Math.min(100, Math.round(totals.protein / 100 * 100)) + '%';
+  const protLabel = document.getElementById('protein-bar-label');
+  if (protLabel) protLabel.textContent = totals.protein + 'g / 100g';
+
+  // Group by meal
+  const mealOrder = ['Breakfast', 'Lunch', 'Dinner', 'Snack', 'Supplement'];
+  const byMeal = {};
+  entries.forEach(e => { if (!byMeal[e.mealType]) byMeal[e.mealType] = []; byMeal[e.mealType].push(e); });
+
+  const diaryEl = document.getElementById('diary-by-meal');
+  if (!diaryEl) return;
+
+  if (!entries.length) {
+    diaryEl.innerHTML = '<div class="card"><div class="empty-state">No food logged yet. Search above to add!</div></div>';
+    return;
+  }
+
+  const sortedMeals = mealOrder.filter(m => byMeal[m]).concat(Object.keys(byMeal).filter(m => !mealOrder.includes(m)));
+
+  diaryEl.innerHTML = sortedMeals.map(meal => {
+    const items = byMeal[meal];
+    const mealCal = Math.round(items.reduce((s, e) => s + (e.cal || 0), 0));
+    const mealProt = Math.round(items.reduce((s, e) => s + (e.protein || 0), 0) * 10) / 10;
+    return `<div class="card meal-group">
+      <div class="meal-group-header">
+        <span>${meal}</span>
+        <span style="font-size:12px;color:var(--text3);">${mealCal} kcal · ${mealProt}g protein</span>
+      </div>
+      ${items.map(e => `
+        <div class="diary-item">
+          <div class="diary-item-info">
+            <div class="diary-item-name">${e.name}${e.brand ? ' <span style="font-weight:400;font-size:12px;color:var(--text2);">· ' + e.brand + '</span>' : ''}</div>
+            <div class="diary-item-macros">${e.qty ? e.qty + e.unit + ' · ' : ''}P: ${e.protein}g · C: ${e.carbs}g · F: ${e.fat}g · Fibre: ${e.fibre}g · Na: ${e.sodium}mg${e.notes ? ' · ' + e.notes : ''}</div>
+            <div style="font-size:11px;color:var(--text3);margin-top:2px;">${e.time}</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;">
+            <div class="diary-item-cal">${e.cal} kcal</div>
+            <button class="delete-btn" onclick="deleteDiaryEntry('${diaryDate}',${e.id})">×</button>
+          </div>
+        </div>`).join('')}
+    </div>`;
+  }).join('');
 }
+
+// Legacy logMeal kept for quest compatibility
+function logMeal() { showToast('Use the food diary above to log meals!'); }
 
 // ── EXERCISE ───────────────────────────────────────────
 function logExercise() {
@@ -440,7 +714,10 @@ function drawBarChart(id,labels,values,color,maxY){
   window['_c_'+id]=new Chart(ctx,{type:'bar',data:{labels,datasets:[{data:values,backgroundColor:color+'cc',borderRadius:4}]},options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{font:{size:11},color:'#999'}},y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{font:{size:11},color:'#999'},min:0,...(maxY?{max:maxY}:{})}}}});
 }
 
-// ── AI ─────────────────────────────────────────────────
+// ── AI COACH ───────────────────────────────────────────
+let aiMode = 'coach'; // 'coach' or 'food'
+let chatHistory = []; // [{role, content}]
+
 function getApiKey(){return localStorage.getItem('ht_api_key')||'';}
 function saveApiKey(){
   const k=document.getElementById('api-key-input').value.trim();
@@ -450,34 +727,765 @@ function saveApiKey(){
 function changeApiKey(){localStorage.removeItem('ht_api_key');refreshAITab();}
 function refreshAITab(){document.getElementById('api-key-card').style.display=getApiKey()?'none':'block';}
 
-async function askAI(){const q=document.getElementById('ai-question').value.trim();if(!q)return;document.getElementById('ai-question').value='';doAI(q);}
-
-async function doAI(question){
-  const key=getApiKey();
-  if(!key){alert('Add your API key first.');return;}
-  const box=document.getElementById('ai-response');
-  box.innerHTML='<div class="ai-msg loading">Thinking...</div>';
-  const {today}=todayData();
-  const rpg=getRPG(),rank=getRank(rpg.xp||0);
-  const sys=`You are a passionate anime-style AI health coach. The user is a hero on their health journey.
-Rank: ${rank.rank} — ${rank.title} (${rpg.xp||0} XP, ${rpg.streak||0} day streak).
-Today: calories ${today.meals.reduce((s,m)=>s+m.cal,0)}/2200, water ${today.water}/8, sleep ${today.sleep?today.sleep.hrs+'hrs':'not logged'}, exercise ${today.exercises.length?today.exercises.map(e=>e.activity).join(','):'none'}, mood ${today.mood?today.mood.label:'not logged'}.
-Be motivating, reference their rank/hero journey. 2-4 sentences, no markdown.`;
-  try{
-    const r=await fetch('https://api.anthropic.com/v1/messages',{method:'POST',headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},body:JSON.stringify({model:'claude-sonnet-4-20250514',max_tokens:500,system:sys,messages:[{role:'user',content:question}]})});
-    const d=await r.json();
-    if(d.error)throw new Error(d.error.message);
-    box.innerHTML='<div class="ai-msg">'+d.content.map(b=>b.text||'').join('').replace(/\n/g,'<br>')+'</div>';
-  }catch(e){box.innerHTML='<div class="ai-msg" style="color:#c00;">Error: '+e.message+'</div>';}
+function setAIMode(mode, btn) {
+  aiMode = mode;
+  document.querySelectorAll('#ai-mode-pills .pill').forEach(p => p.classList.remove('active'));
+  btn.classList.add('active');
+  const hint = document.getElementById('ai-mode-hint');
+  const input = document.getElementById('ai-question');
+  const quickPrompts = document.getElementById('ai-quick-prompts');
+  const foodPrompts = document.getElementById('ai-food-prompts');
+  if (mode === 'food') {
+    hint.textContent = 'Tell me what you ate in plain English — e.g. "I had scrambled eggs and toast for breakfast" — and I\'ll estimate the nutrition and add it to your diary.';
+    input.placeholder = 'Tell me what you ate...';
+    quickPrompts.style.display = 'none';
+    foodPrompts.style.display = 'block';
+  } else {
+    hint.textContent = 'Ask me anything about your health — sleep, exercise, nutrition, mood — and I\'ll give you personalised insights.';
+    input.placeholder = 'Ask about your health...';
+    quickPrompts.style.display = 'block';
+    foodPrompts.style.display = 'none';
+  }
 }
 
-// ── HELPERS ────────────────────────────────────────────
+function addChatBubble(text, type='bot') {
+  const win = document.getElementById('ai-chat-window');
+  const div = document.createElement('div');
+  div.className = 'ai-bubble ai-bubble-' + type;
+  div.innerHTML = text;
+  win.appendChild(div);
+  win.scrollTop = win.scrollHeight;
+  return div;
+}
+
+function askAI() {
+  const q = document.getElementById('ai-question').value.trim();
+  if (!q) return;
+  document.getElementById('ai-question').value = '';
+  if (aiMode === 'food') {
+    doFoodLog(q);
+  } else {
+    doAI(q);
+  }
+}
+
+async function doAI(question) {
+  const key = getApiKey();
+  if (!key) { alert('Add your API key first.'); return; }
+
+  addChatBubble(question, 'user');
+  const loadingBubble = addChatBubble('Thinking...', 'loading');
+
+  // Build context
+  const {today} = todayData();
+  const rpg = getRPG(), rank = getRank(rpg.xp||0);
+  const entries = getDiaryDay(todayKey());
+  const totalCal = entries.reduce((s,e)=>s+(e.cal||0),0);
+
+  const sys = `You are a warm, motivating anime-style AI health coach. The user is on a hero's health journey.
+Rank: ${rank.rank} — ${rank.title} (${rpg.xp||0} XP, ${rpg.streak||0} day streak).
+Today: calories ${totalCal}/2200, water ${today.water}/8, sleep ${today.sleep?today.sleep.hrs+'hrs':'not logged'}, exercise ${today.exercises.length?today.exercises.map(e=>e.activity).join(','):'none'}, mood ${today.mood?today.mood.label:'not logged'}.
+Food today: ${entries.length ? entries.map(e=>e.name+' ('+e.cal+'kcal)').join(', ') : 'nothing logged yet'}.
+Be motivating and reference their rank. 2-4 sentences, plain text only, no markdown.`;
+
+  chatHistory.push({ role: 'user', content: question });
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 400, system: sys, messages: chatHistory })
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
+    const text = data.content.map(b=>b.text||'').join('');
+    chatHistory.push({ role: 'assistant', content: text });
+    // Keep history manageable
+    if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+    loadingBubble.className = 'ai-bubble ai-bubble-bot';
+    loadingBubble.textContent = text;
+  } catch(e) {
+    loadingBubble.className = 'ai-bubble ai-bubble-bot';
+    loadingBubble.innerHTML = '<span style="color:#c00;">Error: '+e.message+'</span>';
+  }
+}
+
+async function doFoodLog(description) {
+  const key = getApiKey();
+  if (!key) { alert('Add your API key first.'); return; }
+
+  addChatBubble(description, 'user');
+  const loadingBubble = addChatBubble('Estimating nutrition...', 'loading');
+
+  const sys = `You are a nutrition assistant. The user will describe food they ate in plain English.
+Your job is to estimate nutrition and return ONLY a valid JSON array (no markdown, no explanation, just the raw JSON).
+Each item in the array is one distinct food/dish with these fields:
+{ "name": string, "mealType": "Breakfast"|"Lunch"|"Dinner"|"Snack"|"Supplement", "qty": number, "unit": "g"|"ml"|"serving"|"piece"|"cup", "cal": number, "protein": number, "carbs": number, "fat": number, "fibre": number, "sugar": number, "sodium": number, "notes": string }
+- Infer mealType from context clues ("for breakfast", "for lunch", time of day hints) — default to "Snack" if unclear.
+- Use realistic estimates for a typical serving of the described food.
+- Split multi-food descriptions into separate items (e.g. "eggs and toast" = 2 items).
+- All nutrition values are numbers (not strings). sodium is in mg, all others in g except cal which is kcal.
+- notes field: brief description of serving size assumed, e.g. "2 large eggs" or "1 slice wholegrain".`;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01', 'anthropic-dangerous-direct-browser-access': 'true' },
+      body: JSON.stringify({ model: 'claude-sonnet-4-20250514', max_tokens: 800, system: sys, messages: [{ role: 'user', content: description }] })
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
+    const raw = data.content.map(b=>b.text||'').join('').trim();
+
+    let items;
+    try {
+      // Strip any accidental markdown fences
+      const cleaned = raw.replace(/```json|```/g,'').trim();
+      items = JSON.parse(cleaned);
+    } catch(e) {
+      throw new Error('Could not parse nutrition data. Try rephrasing.');
+    }
+
+    if (!Array.isArray(items) || !items.length) throw new Error('No foods recognised.');
+
+    // Add each item to diary
+    const diary = getFoodDiary();
+    const date = todayKey();
+    if (!diary[date]) diary[date] = [];
+
+    items.forEach(item => {
+      diary[date].push({
+        id: Date.now() + Math.random(),
+        name: item.name,
+        brand: 'AI estimate',
+        mealType: item.mealType || 'Snack',
+        qty: item.qty, unit: item.unit,
+        notes: item.notes || '',
+        time: new Date().toLocaleTimeString('en-NZ',{hour:'2-digit',minute:'2-digit'}),
+        cal:     Math.round(item.cal || 0),
+        protein: Math.round((item.protein||0)*10)/10,
+        carbs:   Math.round((item.carbs||0)*10)/10,
+        fat:     Math.round((item.fat||0)*10)/10,
+        fibre:   Math.round((item.fibre||0)*10)/10,
+        sugar:   Math.round((item.sugar||0)*10)/10,
+        sodium:  Math.round(item.sodium || 0),
+      });
+    });
+
+    saveFoodDiary(diary);
+    syncDiaryToMeals(date);
+    addXP(10 * items.length, 'Food logged via AI');
+    refreshQuestsTab();
+    checkAllAchievements();
+
+    // Build confirmation message
+    const totalCal = items.reduce((s,i)=>s+(i.cal||0),0);
+    const totalProt = Math.round(items.reduce((s,i)=>s+(i.protein||0),0)*10)/10;
+    const lines = items.map(i => `<strong>${i.name}</strong> — ${i.cal} kcal, ${i.protein}g protein${i.notes?' ('+i.notes+')':''}`).join('<br>');
+
+    loadingBubble.className = 'ai-bubble ai-bubble-action';
+    loadingBubble.innerHTML = `✅ Added ${items.length} item${items.length>1?'s':''} to your diary:<br>${lines}<br><br><strong>Total: ${Math.round(totalCal)} kcal · ${totalProt}g protein</strong><br><span style="font-size:12px;opacity:0.8;">These are estimates — you can edit in the Diary tab.</span>`;
+
+  } catch(e) {
+    loadingBubble.className = 'ai-bubble ai-bubble-bot';
+    loadingBubble.innerHTML = '<span style="color:#c00;">'+e.message+'</span> — try describing the food differently or use the Diary tab to add manually.';
+  }
+}
+
+// ── BLOOD PRESSURE ─────────────────────────────────────
+function getBPReadings(){try{return JSON.parse(localStorage.getItem('ht_bp')||'[]');}catch{return[];}}
+function saveBPReadings(r){localStorage.setItem('ht_bp',JSON.stringify(r));}
+
+function classifyBP(sys,dia){
+  if(sys<120&&dia<80) return {label:'Normal',color:'#1D9E75',emoji:'✅'};
+  if(sys<130&&dia<80) return {label:'Elevated',color:'#BA7517',emoji:'⚠️'};
+  if(sys<140||dia<90) return {label:'High Stage 1',color:'#D85A30',emoji:'🔶'};
+  if(sys>=140||dia>=90) return {label:'High Stage 2',color:'#c0392b',emoji:'🔴'};
+  return {label:'Unknown',color:'#888',emoji:'❓'};
+}
+
+function logBP(){
+  const sys=parseInt(document.getElementById('bp-sys').value);
+  const dia=parseInt(document.getElementById('bp-dia').value);
+  const pulse=parseInt(document.getElementById('bp-pulse').value)||null;
+  const context=document.querySelector('#bp-context-pills .pill.active')?.textContent||'Resting';
+  const notes=document.getElementById('bp-notes').value.trim();
+  const timeVal=document.getElementById('bp-time').value;
+  if(!sys||!dia){alert('Please enter systolic and diastolic values.');return;}
+  const reading={
+    id:Date.now(), date:todayKey(),
+    time:timeVal||new Date().toLocaleTimeString('en-NZ',{hour:'2-digit',minute:'2-digit'}),
+    sys, dia, pulse, context, notes,
+    timestamp:new Date().toISOString()
+  };
+  const readings=getBPReadings();
+  readings.push(reading);
+  saveBPReadings(readings);
+  document.getElementById('bp-sys').value='';
+  document.getElementById('bp-dia').value='';
+  document.getElementById('bp-pulse').value='';
+  document.getElementById('bp-notes').value='';
+  addXP(15,'BP reading logged');
+  refreshBPHistory();
+  drawBPCharts();
+  showToast('BP logged: '+sys+'/'+dia+' mmHg');
+}
+
+function refreshBPHistory(){
+  const readings=getBPReadings();
+  const statusCard=document.getElementById('bp-status-card');
+  const latestEl=document.getElementById('bp-latest');
+  const histEl=document.getElementById('bp-history');
+  if(!readings.length){
+    if(statusCard) statusCard.style.display='none';
+    if(histEl) histEl.innerHTML='<div class="empty-state">No readings yet.</div>';
+    return;
+  }
+  const latest=readings[readings.length-1];
+  const cls=classifyBP(latest.sys,latest.dia);
+  if(statusCard) statusCard.style.display='block';
+  if(latestEl) latestEl.innerHTML=`
+    <div style="display:flex;align-items:center;gap:16px;">
+      <div style="text-align:center;">
+        <div style="font-size:36px;font-weight:700;color:${cls.color};">${latest.sys}/${latest.dia}</div>
+        <div style="font-size:12px;color:#888;">mmHg · ${latest.time}</div>
+      </div>
+      <div>
+        <div style="font-size:15px;font-weight:600;color:${cls.color};">${cls.emoji} ${cls.label}</div>
+        ${latest.pulse?`<div style="font-size:13px;color:#888;">Pulse: ${latest.pulse} bpm</div>`:''}
+        <div style="font-size:13px;color:#888;">${latest.context}</div>
+      </div>
+    </div>`;
+  if(histEl){
+    const sorted=[...readings].reverse();
+    histEl.innerHTML=sorted.map(r=>{
+      const c=classifyBP(r.sys,r.dia);
+      return`<div class="log-item">
+        <div class="log-item-left">
+          <div class="log-item-name" style="color:${c.color};">${r.sys}/${r.dia} mmHg ${c.emoji}</div>
+          <div class="log-item-sub">${r.date} ${r.time} · ${r.context}${r.pulse?' · '+r.pulse+' bpm':''}${r.notes?' · '+r.notes:''}</div>
+        </div>
+        <button onclick="deleteBP(${r.id})" style="background:none;border:none;color:#ccc;cursor:pointer;font-size:18px;padding:4px;">×</button>
+      </div>`;
+    }).join('');
+  }
+}
+
+function deleteBP(id){
+  if(!confirm('Delete this reading?'))return;
+  saveBPReadings(getBPReadings().filter(r=>r.id!==id));
+  refreshBPHistory(); drawBPCharts();
+}
+
+function drawBPCharts(){
+  const readings=getBPReadings();
+  const days=getLast14Days();
+  const labels=days.map(d=>new Date(d+'T00:00').toLocaleDateString('en-NZ',{month:'short',day:'numeric'}));
+  const sysData=days.map(d=>{
+    const dayR=readings.filter(r=>r.date===d);
+    return dayR.length?Math.round(dayR.reduce((s,r)=>s+r.sys,0)/dayR.length):null;
+  });
+  const diaData=days.map(d=>{
+    const dayR=readings.filter(r=>r.date===d);
+    return dayR.length?Math.round(dayR.reduce((s,r)=>s+r.dia,0)/dayR.length):null;
+  });
+  drawLineChart('bpSysChart',labels,sysData,'#D85A30',60,180);
+  drawLineChart('bpDiaChart',labels,diaData,'#534AB7',40,120);
+}
+
+function drawLineChart(id,labels,values,color,minY,maxY){
+  const ctx=document.getElementById(id)?.getContext('2d');
+  if(!ctx)return;
+  if(window['_c_'+id])window['_c_'+id].destroy();
+  window['_c_'+id]=new Chart(ctx,{
+    type:'line',
+    data:{labels,datasets:[{data:values,borderColor:color,backgroundColor:color+'22',tension:0.3,pointRadius:4,pointBackgroundColor:color,fill:true,spanGaps:true}]},
+    options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false}},scales:{x:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{font:{size:10},color:'#999',maxRotation:45}},y:{grid:{color:'rgba(0,0,0,0.04)'},ticks:{font:{size:11},color:'#999'},min:minY,max:maxY}}}
+  });
+}
+
+function getLast14Days(){
+  return Array.from({length:14},(_,i)=>{const d=new Date();d.setDate(d.getDate()-13+i);return d.toISOString().slice(0,10);});
+}
+
+// ── DOCTOR REPORT ──────────────────────────────────────
+function generateReport(){
+  const name=document.getElementById('report-name').value.trim()||'Patient';
+  const dob=document.getElementById('report-dob').value.trim()||'Not provided';
+  const doctor=document.getElementById('report-doctor').value.trim()||'Doctor';
+  const notes=document.getElementById('report-notes').value.trim();
+  const periodText=document.querySelector('#report-period-pills .pill.active')?.textContent||'7 days';
+  const days=periodText==='30 days'?30:periodText==='14 days'?14:7;
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({orientation:'portrait',unit:'mm',format:'a4'});
+  const W=210, margin=20, contentW=W-margin*2;
+  let y=margin;
+
+  // Colours
+  const GREEN='#1D9E75', DARK='#1a1a1a', GRAY='#666666', LIGHTGRAY='#f5f5f3', RED='#c0392b', AMBER='#BA7517';
+
+  function setColor(hex){const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);doc.setTextColor(r,g,b);}
+  function setFill(hex){const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);doc.setFillColor(r,g,b);}
+  function setDraw(hex){const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16);doc.setDrawColor(r,g,b);}
+
+  function checkPage(needed=20){if(y+needed>285){doc.addPage();y=margin;}}
+
+  // Header bar
+  setFill(GREEN); doc.rect(0,0,W,22,'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(16);
+  doc.setTextColor(255,255,255);
+  doc.text('Health Monitoring Report',margin,14);
+  doc.setFontSize(9); doc.setFont('helvetica','normal');
+  doc.text('Generated: '+new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'long',year:'numeric'}),W-margin,14,{align:'right'});
+  y=30;
+
+  // Patient info box
+  setFill(LIGHTGRAY); setDraw('#dddddd');
+  doc.setLineWidth(0.3);
+  doc.roundedRect(margin,y,contentW,22,2,2,'FD');
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); setColor(DARK);
+  doc.text('Patient: '+name,margin+5,y+7);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); setColor(GRAY);
+  doc.text('DOB: '+dob,margin+5,y+13);
+  doc.text('Report period: Last '+days+' days',margin+5,y+19);
+  doc.text('Prepared for: '+doctor,W-margin-5,y+7,{align:'right'});
+  y+=28;
+
+  // Helper: section heading
+  function sectionHeading(title,icon){
+    checkPage(14);
+    setFill(GREEN+'22'); doc.rect(margin,y,contentW,8,'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(11); setColor(GREEN);
+    doc.text(icon+'  '+title,margin+3,y+5.5);
+    y+=11;
+  }
+
+  // Helper: stat row
+  function statRow(label,value,note,valueColor){
+    checkPage(8);
+    doc.setFont('helvetica','normal'); doc.setFontSize(9); setColor(GRAY);
+    doc.text(label,margin+3,y);
+    doc.setFont('helvetica','bold'); setColor(valueColor||DARK);
+    doc.text(String(value),margin+contentW/2,y);
+    if(note){doc.setFont('helvetica','normal');doc.setFontSize(8);setColor(GRAY);doc.text(note,margin+contentW/2+30,y);}
+    y+=6;
+  }
+
+  // Helper: divider
+  function divider(){setDraw('#eeeeee');doc.setLineWidth(0.2);doc.line(margin,y,W-margin,y);y+=4;}
+
+  // ── BLOOD PRESSURE ──
+  const allBP=getBPReadings();
+  const cutoff=new Date(); cutoff.setDate(cutoff.getDate()-days);
+  const bpData=allBP.filter(r=>new Date(r.timestamp)>=cutoff);
+  sectionHeading('Blood Pressure','❤');
+  if(bpData.length){
+    const avgSys=Math.round(bpData.reduce((s,r)=>s+r.sys,0)/bpData.length);
+    const avgDia=Math.round(bpData.reduce((s,r)=>s+r.dia,0)/bpData.length);
+    const maxSys=Math.max(...bpData.map(r=>r.sys));
+    const minSys=Math.min(...bpData.map(r=>r.sys));
+    const cls=classifyBP(avgSys,avgDia);
+    statRow('Total readings',bpData.length+' readings');
+    statRow('Average BP',avgSys+'/'+avgDia+' mmHg',cls.label,cls.color);
+    statRow('Systolic range',minSys+' - '+maxSys+' mmHg');
+    const avgPulse=bpData.filter(r=>r.pulse).length?Math.round(bpData.filter(r=>r.pulse).reduce((s,r)=>s+(r.pulse||0),0)/bpData.filter(r=>r.pulse).length):null;
+    if(avgPulse) statRow('Average pulse',avgPulse+' bpm');
+    divider();
+    // BP table
+    checkPage(10);
+    doc.setFont('helvetica','bold'); doc.setFontSize(8); setColor(GRAY);
+    doc.text('Date',margin+3,y); doc.text('Time',margin+28,y); doc.text('Sys',margin+50,y);
+    doc.text('Dia',margin+65,y); doc.text('Pulse',margin+80,y); doc.text('Context',margin+100,y); doc.text('Classification',margin+135,y);
+    y+=4; setDraw('#cccccc'); doc.setLineWidth(0.2); doc.line(margin,y,W-margin,y); y+=3;
+    const recentBP=[...bpData].reverse().slice(0,20);
+    for(const r of recentBP){
+      checkPage(7);
+      const c=classifyBP(r.sys,r.dia);
+      doc.setFont('helvetica','normal'); doc.setFontSize(8); setColor(DARK);
+      doc.text(r.date,margin+3,y); doc.text(r.time,margin+28,y);
+      setColor(c.color); doc.setFont('helvetica','bold');
+      doc.text(String(r.sys),margin+50,y); doc.text(String(r.dia),margin+65,y);
+      doc.setFont('helvetica','normal'); setColor(DARK);
+      doc.text(r.pulse?String(r.pulse):'—',margin+80,y);
+      doc.text(r.context||'',margin+100,y);
+      setColor(c.color); doc.text(c.label,margin+135,y);
+      y+=5.5;
+    }
+    if(bpData.length>20){setColor(GRAY);doc.setFontSize(8);doc.text('(showing most recent 20 of '+bpData.length+' readings)',margin+3,y);y+=5;}
+  } else {
+    doc.setFont('helvetica','italic'); doc.setFontSize(9); setColor(GRAY);
+    doc.text('No blood pressure readings recorded in this period.',margin+3,y); y+=8;
+  }
+  y+=4;
+
+  // ── SLEEP ──
+  const data=loadData();
+  const allDays=Array.from({length:days},(_,i)=>{const d=new Date();d.setDate(d.getDate()-days+1+i);return d.toISOString().slice(0,10);});
+  const sleepDays=allDays.map(d=>data[d]?.sleep).filter(Boolean);
+  sectionHeading('Sleep','Z');
+  if(sleepDays.length){
+    const avgSleep=(sleepDays.reduce((s,d)=>s+d.hrs,0)/sleepDays.length).toFixed(1);
+    const good=sleepDays.filter(d=>d.hrs>=7).length;
+    statRow('Days tracked',sleepDays.length+' / '+days+' days');
+    statRow('Average duration',avgSleep+' hrs/night',avgSleep>=7?'Good':'Below recommended',avgSleep>=7?GREEN:AMBER);
+    statRow('Nights >= 7hrs',good+' nights ('+Math.round(good/sleepDays.length*100)+'%)');
+    const qualities={Excellent:0,Good:0,Fair:0,Poor:0};
+    sleepDays.forEach(d=>{ if(qualities[d.quality]!==undefined) qualities[d.quality]++; });
+    statRow('Quality breakdown','Excellent: '+qualities.Excellent+' | Good: '+qualities.Good+' | Fair: '+qualities.Fair+' | Poor: '+qualities.Poor);
+  } else {
+    doc.setFont('helvetica','italic');doc.setFontSize(9);setColor(GRAY);doc.text('No sleep data recorded.',margin+3,y);y+=8;
+  }
+  y+=4;
+
+  // ── EXERCISE ──
+  checkPage(30);
+  sectionHeading('Exercise','E');
+  const exDays=allDays.map(d=>data[d]?.exercises||[]).filter(e=>e.length>0);
+  const totalEx=allDays.flatMap(d=>data[d]?.exercises||[]);
+  if(totalEx.length){
+    const totalMins=totalEx.reduce((s,e)=>s+e.duration,0);
+    statRow('Total workouts',totalEx.length+' sessions');
+    statRow('Active days',exDays.length+' / '+days+' days');
+    statRow('Total time',totalMins+' mins ('+Math.round(totalMins/60*10)/10+' hrs)');
+    const types={};totalEx.forEach(e=>{types[e.activity]=(types[e.activity]||0)+1;});
+    statRow('Activities',Object.entries(types).map(([k,v])=>k+': '+v).join(' | '));
+  } else {
+    doc.setFont('helvetica','italic');doc.setFontSize(9);setColor(GRAY);doc.text('No exercise recorded.',margin+3,y);y+=8;
+  }
+  y+=4;
+
+  // ── WEIGHT ──
+  checkPage(20);
+  sectionHeading('Weight','W');
+  const weightDays=allDays.map(d=>data[d]?.weight).filter(Boolean);
+  if(weightDays.length){
+    statRow('Readings',weightDays.length+' entries');
+    statRow('Latest',weightDays[weightDays.length-1]+' kg');
+    if(weightDays.length>1){
+      const change=(weightDays[weightDays.length-1]-weightDays[0]);
+      statRow('Change over period',(change>=0?'+':'')+change.toFixed(1)+' kg',null,change<0?GREEN:change>0?AMBER:DARK);
+    }
+  } else {
+    doc.setFont('helvetica','italic');doc.setFontSize(9);setColor(GRAY);doc.text('No weight data recorded.',margin+3,y);y+=8;
+  }
+  y+=4;
+
+  // ── NUTRITION ──
+  checkPage(20);
+  sectionHeading('Nutrition','N');
+  const mealDays=allDays.map(d=>data[d]?.meals||[]).filter(m=>m.length>0);
+  if(mealDays.length){
+    const allMeals=allDays.flatMap(d=>data[d]?.meals||[]);
+    const avgCal=Math.round(allMeals.reduce((s,m)=>s+m.cal,0)/mealDays.length);
+    statRow('Days with meals logged',mealDays.length+' / '+days+' days');
+    statRow('Avg daily calories',avgCal+' kcal',avgCal<2200?'Within goal':'Above goal',avgCal<=2200?GREEN:AMBER);
+  } else {
+    doc.setFont('helvetica','italic');doc.setFontSize(9);setColor(GRAY);doc.text('No nutrition data recorded.',margin+3,y);y+=8;
+  }
+  y+=4;
+
+  // ── MOOD ──
+  checkPage(20);
+  sectionHeading('Mood & Wellbeing','M');
+  const moodDays=allDays.map(d=>data[d]?.mood).filter(Boolean);
+  if(moodDays.length){
+    statRow('Days tracked',moodDays.length+' / '+days+' days');
+    const moodCounts={};moodDays.forEach(m=>{moodCounts[m.label]=(moodCounts[m.label]||0)+1;});
+    statRow('Mood breakdown',Object.entries(moodCounts).map(([k,v])=>k+': '+v+'d').join(' | '));
+    const energyCounts={};moodDays.forEach(m=>{energyCounts[m.energy]=(energyCounts[m.energy]||0)+1;});
+    statRow('Energy levels',Object.entries(energyCounts).map(([k,v])=>k+': '+v+'d').join(' | '));
+  } else {
+    doc.setFont('helvetica','italic');doc.setFontSize(9);setColor(GRAY);doc.text('No mood data recorded.',margin+3,y);y+=8;
+  }
+  y+=4;
+
+  // ── MEDICATIONS ──
+  checkPage(20);
+  sectionHeading('Medications','Rx');
+  const meds=getMeds();
+  if(meds.length){
+    doc.setFont('helvetica','bold');doc.setFontSize(9);setColor(DARK);
+    doc.text('Current medications:',margin+3,y);y+=6;
+    meds.forEach(m=>{
+      checkPage(6);
+      doc.setFont('helvetica','normal');doc.setFontSize(9);setColor(DARK);
+      doc.text('• '+m.name+(m.dose?' — '+m.dose:'')+(m.time?' ('+m.time+')':''),margin+6,y);y+=5.5;
+    });
+  } else {
+    doc.setFont('helvetica','italic');doc.setFontSize(9);setColor(GRAY);doc.text('No medications recorded.',margin+3,y);y+=8;
+  }
+  y+=4;
+
+  // ── NOTES ──
+  if(notes){
+    checkPage(20);
+    sectionHeading('Additional Notes','*');
+    const lines=doc.splitTextToSize(notes,contentW-6);
+    doc.setFont('helvetica','normal');doc.setFontSize(9);setColor(DARK);
+    lines.forEach(l=>{checkPage(6);doc.text(l,margin+3,y);y+=5.5;});
+    y+=4;
+  }
+
+  // Footer
+  const pageCount=doc.getNumberOfPages();
+  for(let i=1;i<=pageCount;i++){
+    doc.setPage(i);
+    setFill(LIGHTGRAY);doc.rect(0,287,W,10,'F');
+    doc.setFont('helvetica','normal');doc.setFontSize(8);setColor(GRAY);
+    doc.text('Health Tracker Report — '+name+' — Confidential',margin,293);
+    doc.text('Page '+i+' of '+pageCount,W-margin,293,{align:'right'});
+  }
+
+  const filename='health-report-'+name.replace(/\s+/g,'-').toLowerCase()+'-'+todayKey()+'.pdf';
+  doc.save(filename);
+  showToast('Report downloaded! 📄');
+}
+
+// ── FOOD DIARY PDF ─────────────────────────────────────
+function generateFoodDiaryPDF() {
+  const name = document.getElementById('report-name').value.trim() || 'Patient';
+  const dob  = document.getElementById('report-dob').value.trim() || 'Not provided';
+  const doctor = document.getElementById('report-doctor').value.trim() || 'Bariatric Team';
+  const periodText = document.querySelector('#report-period-pills .pill.active')?.textContent || '7 days';
+  const days = periodText === '30 days' ? 30 : periodText === '14 days' ? 14 : 7;
+
+  const { jsPDF } = window.jspdf;
+  const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
+  const W = 210, margin = 15, contentW = W - margin * 2;
+  let y = margin;
+
+  const GREEN = '#1D9E75', DARK = '#1a1a1a', GRAY = '#666', LIGHTGRAY = '#f5f5f3';
+  function setColor(hex) { const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); doc.setTextColor(r,g,b); }
+  function setFill(hex)  { const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); doc.setFillColor(r,g,b); }
+  function setDraw(hex)  { const r=parseInt(hex.slice(1,3),16),g=parseInt(hex.slice(3,5),16),b=parseInt(hex.slice(5,7),16); doc.setDrawColor(r,g,b); }
+  function checkPage(need=15) { if (y+need > 282) { doc.addPage(); y = margin; } }
+
+  // Header
+  setFill(GREEN); doc.rect(0, 0, W, 22, 'F');
+  doc.setFont('helvetica','bold'); doc.setFontSize(15); doc.setTextColor(255,255,255);
+  doc.text('Food & Nutrition Diary', margin, 14);
+  doc.setFontSize(9); doc.setFont('helvetica','normal');
+  doc.text('Generated: '+new Date().toLocaleDateString('en-NZ',{day:'numeric',month:'long',year:'numeric'}), W-margin, 14, {align:'right'});
+  y = 28;
+
+  // Patient box
+  setFill(LIGHTGRAY); setDraw('#dddddd'); doc.setLineWidth(0.3);
+  doc.roundedRect(margin, y, contentW, 20, 2, 2, 'FD');
+  doc.setFont('helvetica','bold'); doc.setFontSize(10); setColor(DARK);
+  doc.text('Patient: '+name, margin+4, y+7);
+  doc.setFont('helvetica','normal'); doc.setFontSize(9); setColor(GRAY);
+  doc.text('DOB: '+dob, margin+4, y+13);
+  doc.text('Period: Last '+days+' days   |   Prepared for: '+doctor, W-margin-4, y+7, {align:'right'});
+  y += 25;
+
+  const diary = getFoodDiary();
+  const allDays = Array.from({length:days}, (_,i) => { const d=new Date(); d.setDate(d.getDate()-days+1+i); return d.toISOString().slice(0,10); });
+  const mealOrder = ['Breakfast','Lunch','Dinner','Snack','Supplement'];
+
+  // Summary table header
+  function tableHeader() {
+    checkPage(10);
+    setFill('#e8f5f0'); doc.rect(margin, y, contentW, 7, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(7.5); setColor(DARK);
+    const cols = [margin+2, margin+28, margin+50, margin+68, margin+86, margin+104, margin+122, margin+140, margin+158];
+    ['Food', 'Meal', 'Cal', 'Prot(g)', 'Carbs(g)', 'Fat(g)', 'Fibre(g)', 'Sugar(g)', 'Na(mg)'].forEach((h,i) => doc.text(h, cols[i], y+5));
+    y += 8;
+  }
+
+  let grandTotals = {cal:0,protein:0,carbs:0,fat:0,fibre:0,sugar:0,sodium:0};
+  let daysLogged = 0;
+
+  for (const date of allDays) {
+    const entries = diary[date] || [];
+    if (!entries.length) continue;
+    daysLogged++;
+
+    const d = new Date(date+'T00:00');
+    const dateStr = d.toLocaleDateString('en-NZ',{weekday:'short',day:'numeric',month:'short',year:'numeric'});
+    const dayTotals = {cal:0,protein:0,carbs:0,fat:0,fibre:0,sugar:0,sodium:0};
+    entries.forEach(e => { dayTotals.cal+=e.cal||0; dayTotals.protein+=e.protein||0; dayTotals.carbs+=e.carbs||0; dayTotals.fat+=e.fat||0; dayTotals.fibre+=e.fibre||0; dayTotals.sugar+=e.sugar||0; dayTotals.sodium+=e.sodium||0; });
+    Object.keys(grandTotals).forEach(k => grandTotals[k] += dayTotals[k]);
+
+    checkPage(20);
+    // Date heading
+    setFill(GREEN); doc.rect(margin, y, contentW, 8, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(255,255,255);
+    doc.text(dateStr, margin+3, y+5.5);
+    doc.setFontSize(8);
+    doc.text(`Total: ${Math.round(dayTotals.cal)} kcal  P:${Math.round(dayTotals.protein*10)/10}g  C:${Math.round(dayTotals.carbs*10)/10}g  F:${Math.round(dayTotals.fat*10)/10}g`, W-margin-3, y+5.5, {align:'right'});
+    y += 9;
+
+    tableHeader();
+
+    const byMeal = {};
+    entries.forEach(e => { if (!byMeal[e.mealType]) byMeal[e.mealType] = []; byMeal[e.mealType].push(e); });
+    const sorted = mealOrder.filter(m=>byMeal[m]).concat(Object.keys(byMeal).filter(m=>!mealOrder.includes(m)));
+
+    for (const meal of sorted) {
+      const items = byMeal[meal];
+      for (const e of items) {
+        checkPage(7);
+        const cols = [margin+2, margin+28, margin+50, margin+68, margin+86, margin+104, margin+122, margin+140, margin+158];
+        doc.setFont('helvetica','normal'); doc.setFontSize(7.5); setColor(DARK);
+        const foodLabel = e.name.length > 22 ? e.name.slice(0,21)+'…' : e.name;
+        const serving = e.qty ? `${e.qty}${e.unit}` : '';
+        doc.text(foodLabel, cols[0], y);
+        doc.setFontSize(7); setColor(GRAY);
+        if (serving) doc.text(serving, cols[0], y+3.5);
+        doc.setFontSize(7.5); setColor(DARK);
+        doc.text(e.mealType, cols[1], y);
+        doc.text(String(Math.round(e.cal||0)),          cols[2], y);
+        doc.text(String(Math.round((e.protein||0)*10)/10), cols[3], y);
+        doc.text(String(Math.round((e.carbs||0)*10)/10),   cols[4], y);
+        doc.text(String(Math.round((e.fat||0)*10)/10),     cols[5], y);
+        doc.text(String(Math.round((e.fibre||0)*10)/10),   cols[6], y);
+        doc.text(String(Math.round((e.sugar||0)*10)/10),   cols[7], y);
+        doc.text(String(Math.round(e.sodium||0)),           cols[8], y);
+        y += serving ? 7 : 5.5;
+        setDraw('#eeeeee'); doc.setLineWidth(0.1); doc.line(margin, y-0.5, W-margin, y-0.5);
+      }
+    }
+    y += 4;
+  }
+
+  if (!daysLogged) {
+    doc.setFont('helvetica','italic'); doc.setFontSize(11); setColor(GRAY);
+    doc.text('No food diary entries found for this period.', W/2, 150, {align:'center'});
+  } else {
+    // Grand summary
+    checkPage(30);
+    setFill('#1a1a1a'); doc.rect(margin, y, contentW, 8, 'F');
+    doc.setFont('helvetica','bold'); doc.setFontSize(10); doc.setTextColor(255,255,255);
+    doc.text('Period averages ('+daysLogged+' days logged)', margin+3, y+5.5);
+    y += 9;
+    setFill(LIGHTGRAY); doc.rect(margin, y, contentW, 10, 'F');
+    doc.setFont('helvetica','normal'); doc.setFontSize(8.5); setColor(DARK);
+    const avg = k => Math.round(grandTotals[k]/daysLogged*10)/10;
+    doc.text(`Avg daily: ${avg('cal')} kcal  |  Protein: ${avg('protein')}g  |  Carbs: ${avg('carbs')}g  |  Fat: ${avg('fat')}g  |  Fibre: ${avg('fibre')}g  |  Sugar: ${avg('sugar')}g  |  Sodium: ${avg('sodium')}mg`, margin+3, y+6.5);
+    y += 14;
+
+    // Bariatric note
+    checkPage(20);
+    setFill('#fff8e1'); setDraw('#f0c040'); doc.setLineWidth(0.3);
+    doc.roundedRect(margin, y, contentW, 16, 2, 2, 'FD');
+    doc.setFont('helvetica','bold'); doc.setFontSize(9); setColor('#854F0B');
+    doc.text('Note for bariatric team', margin+4, y+6);
+    doc.setFont('helvetica','normal'); doc.setFontSize(8); setColor(DARK);
+    const note = document.getElementById('report-notes').value.trim() || 'No additional notes provided.';
+    const noteLines = doc.splitTextToSize(note, contentW-8);
+    noteLines.forEach((l,i) => doc.text(l, margin+4, y+11+(i*4)));
+    y += 18 + (noteLines.length-1)*4;
+  }
+
+  // Footer
+  const pageCount = doc.getNumberOfPages();
+  for (let i=1;i<=pageCount;i++) {
+    doc.setPage(i);
+    setFill(LIGHTGRAY); doc.rect(0,287,W,10,'F');
+    doc.setFont('helvetica','normal'); doc.setFontSize(7.5); setColor(GRAY);
+    doc.text('Food Diary — '+name+' — Confidential — For bariatric team use only', margin, 293);
+    doc.text('Page '+i+' of '+pageCount, W-margin, 293, {align:'right'});
+  }
+
+  doc.save('food-diary-'+name.replace(/\s+/g,'-').toLowerCase()+'-'+todayKey()+'.pdf');
+  showToast('Food diary PDF downloaded! 📄');
+}
+
+// ── VOICE INPUT ────────────────────────────────────────
+let recognition = null;
+let isListening = false;
+
+function initVoice() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) return null;
+  const r = new SpeechRecognition();
+  r.continuous = false;
+  r.interimResults = true;
+  r.lang = 'en-NZ';
+
+  r.onstart = () => {
+    isListening = true;
+    const btn = document.getElementById('voice-btn');
+    const icon = document.getElementById('voice-icon');
+    if (btn) btn.classList.add('voice-listening');
+    if (icon) { icon.className = 'ti ti-microphone-off'; }
+    setVoiceStatus('🎤 Listening...');
+    document.getElementById('ai-question').placeholder = 'Speak now...';
+  };
+
+  r.onresult = (e) => {
+    const transcript = Array.from(e.results).map(r => r[0].transcript).join('');
+    document.getElementById('ai-question').value = transcript;
+    if (e.results[e.results.length - 1].isFinal) {
+      setVoiceStatus('✓ Got it — sending...');
+      stopVoice();
+      setTimeout(() => askAI(), 300);
+    }
+  };
+
+  r.onerror = (e) => {
+    stopVoice();
+    if (e.error === 'not-allowed') {
+      setVoiceStatus('❌ Microphone permission denied. Please allow mic access in browser settings.');
+    } else if (e.error === 'no-speech') {
+      setVoiceStatus('No speech detected. Try again.');
+    } else {
+      setVoiceStatus('Voice error: ' + e.error);
+    }
+  };
+
+  r.onend = () => { if (isListening) stopVoice(); };
+  return r;
+}
+
+function toggleVoice() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    setVoiceStatus('❌ Voice not supported in this browser. Try Chrome on Android.');
+    return;
+  }
+  if (isListening) {
+    stopVoice();
+  } else {
+    startVoice();
+  }
+}
+
+function startVoice() {
+  if (!recognition) recognition = initVoice();
+  if (!recognition) return;
+  document.getElementById('ai-question').value = '';
+  try { recognition.start(); } catch(e) { recognition = initVoice(); recognition.start(); }
+}
+
+function stopVoice() {
+  isListening = false;
+  const btn = document.getElementById('voice-btn');
+  const icon = document.getElementById('voice-icon');
+  if (btn) btn.classList.remove('voice-listening');
+  if (icon) icon.className = 'ti ti-microphone';
+  document.getElementById('ai-question').placeholder = aiMode === 'food' ? 'Tell me what you ate...' : 'Ask about your health...';
+  if (recognition) try { recognition.stop(); } catch(e) {}
+  setTimeout(() => setVoiceStatus(''), 3000);
+}
+
+function setVoiceStatus(msg) {
+  const el = document.getElementById('voice-status');
+  if (el) el.textContent = msg;
+}
+
+
 function getLast7Days(){return Array.from({length:7},(_,i)=>{const d=new Date();d.setDate(d.getDate()-6+i);return d.toISOString().slice(0,10);});}
 
 // ── INIT ───────────────────────────────────────────────
 initRPG();
+diaryDate = todayKey();
 refreshDashboard();
 refreshNutrition();
 refreshMeds();
 refreshAITab();
+// Set BP time default to now
+const bpTimeEl=document.getElementById('bp-time');
+if(bpTimeEl) bpTimeEl.value=new Date().toLocaleTimeString('en-NZ',{hour:'2-digit',minute:'2-digit',hour12:false});
 if('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(()=>{});

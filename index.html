@@ -25,12 +25,14 @@
     <!-- Nav -->
     <nav class="nav" id="nav">
       <button class="nav-btn active" data-tab="dashboard"><i class="ti ti-layout-dashboard"></i><span>Home</span></button>
-      <button class="nav-btn" data-tab="nutrition"><i class="ti ti-salad"></i><span>Food</span></button>
+      <button class="nav-btn" data-tab="nutrition"><i class="ti ti-book"></i><span>Diary</span></button>
       <button class="nav-btn" data-tab="exercise"><i class="ti ti-run"></i><span>Exercise</span></button>
       <button class="nav-btn" data-tab="sleep"><i class="ti ti-moon"></i><span>Sleep</span></button>
       <button class="nav-btn" data-tab="mood"><i class="ti ti-mood-smile"></i><span>Mood</span></button>
       <button class="nav-btn" data-tab="meds"><i class="ti ti-pill"></i><span>Meds</span></button>
-      <button class="nav-btn" data-tab="ai"><i class="ti ti-sparkles"></i><span>AI Coach</span></button>
+      <button class="nav-btn" data-tab="bp"><i class="ti ti-heart-rate-monitor"></i><span>BP</span></button>
+      <button class="nav-btn" data-tab="ai"><i class="ti ti-sparkles"></i><span>AI</span></button>
+      <button class="nav-btn" data-tab="report"><i class="ti ti-file-medical"></i><span>Report</span></button>
       <button class="nav-btn" data-tab="rpg"><i class="ti ti-sword"></i><span>Hero</span></button>
     </nav>
 
@@ -56,31 +58,101 @@
         </div>
       </section>
 
-      <!-- NUTRITION -->
+      <!-- FOOD DIARY / NUTRITION -->
       <section class="section" id="tab-nutrition">
+
+        <!-- Meal type selector -->
         <div class="card">
-          <div class="card-title">Log a meal</div>
-          <div class="form-group"><label>Meal type</label>
+          <div class="card-title">Add food</div>
+          <div class="form-group"><label>Meal</label>
             <div class="pill-row" id="meal-type-pills">
               <button class="pill active" onclick="selectPill(this,'meal-type-pills')">Breakfast</button>
               <button class="pill" onclick="selectPill(this,'meal-type-pills')">Lunch</button>
               <button class="pill" onclick="selectPill(this,'meal-type-pills')">Dinner</button>
               <button class="pill" onclick="selectPill(this,'meal-type-pills')">Snack</button>
+              <button class="pill" onclick="selectPill(this,'meal-type-pills')">Supplement</button>
             </div>
           </div>
-          <div class="form-row">
-            <div class="form-group"><label>Calories</label><input type="number" id="meal-cal" placeholder="e.g. 550" /></div>
-            <div class="form-group"><label>Protein (g)</label><input type="number" id="meal-protein" placeholder="e.g. 30" /></div>
+
+          <!-- Food search -->
+          <div class="form-group">
+            <label>Search food database</label>
+            <div style="display:flex;gap:8px;">
+              <input type="text" id="food-search-input" placeholder="e.g. chicken breast, banana..." onkeydown="if(event.key==='Enter')searchFood()" style="flex:1;" />
+              <button onclick="searchFood()" style="padding:10px 14px;background:var(--green);color:white;border:none;border-radius:var(--radius-sm);cursor:pointer;white-space:nowrap;font-size:14px;">Search</button>
+            </div>
           </div>
-          <div class="form-group"><label>Notes</label><input type="text" id="meal-notes" placeholder="e.g. Chicken salad" /></div>
-          <button class="primary-btn" onclick="logMeal()">Log meal</button>
+          <div id="food-search-results"></div>
+
+          <!-- Manual / selected food form -->
+          <div id="food-entry-form" style="display:none;">
+            <div style="height:0.5px;background:var(--border);margin:0.75rem 0;"></div>
+            <div id="food-entry-name" style="font-size:14px;font-weight:600;color:var(--text);margin-bottom:0.75rem;"></div>
+            <div class="form-group"><label>Serving size</label>
+              <div style="display:flex;gap:8px;align-items:center;">
+                <input type="number" id="food-qty" placeholder="100" value="100" style="width:90px;" oninput="updateServing()" />
+                <select id="food-unit" onchange="updateServing()" style="flex:1;">
+                  <option value="g">g</option>
+                  <option value="ml">ml</option>
+                  <option value="serving">serving</option>
+                  <option value="cup">cup</option>
+                  <option value="tbsp">tbsp</option>
+                  <option value="tsp">tsp</option>
+                  <option value="piece">piece</option>
+                </select>
+              </div>
+            </div>
+            <div class="nutrition-grid" id="nutrition-preview"></div>
+            <div class="form-group" style="margin-top:0.5rem;"><label>Notes</label><input type="text" id="food-entry-notes" placeholder="optional notes" /></div>
+            <div style="display:flex;gap:8px;margin-top:0.5rem;">
+              <button class="primary-btn" onclick="addFoodEntry()" style="flex:1;">Add to diary</button>
+              <button onclick="clearFoodEntry()" style="padding:12px 16px;border:0.5px solid var(--border);background:transparent;color:var(--text2);border-radius:var(--radius-sm);cursor:pointer;">Cancel</button>
+            </div>
+          </div>
+
+          <!-- Manual entry fallback -->
+          <div id="manual-entry-toggle" style="margin-top:0.75rem;">
+            <button onclick="showManualEntry()" style="background:none;border:none;color:var(--green);font-size:13px;cursor:pointer;padding:0;">+ Add manually instead</button>
+          </div>
+          <div id="manual-entry-form" style="display:none;margin-top:0.75rem;">
+            <div style="height:0.5px;background:var(--border);margin-bottom:0.75rem;"></div>
+            <div class="form-group"><label>Food name</label><input type="text" id="manual-name" placeholder="e.g. Homemade soup" /></div>
+            <div class="form-row">
+              <div class="form-group"><label>Calories</label><input type="number" id="manual-cal" placeholder="0" /></div>
+              <div class="form-group"><label>Protein (g)</label><input type="number" id="manual-protein" placeholder="0" /></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Carbs (g)</label><input type="number" id="manual-carbs" placeholder="0" /></div>
+              <div class="form-group"><label>Fat (g)</label><input type="number" id="manual-fat" placeholder="0" /></div>
+            </div>
+            <div class="form-row">
+              <div class="form-group"><label>Fibre (g)</label><input type="number" id="manual-fibre" placeholder="0" /></div>
+              <div class="form-group"><label>Sugar (g)</label><input type="number" id="manual-sugar" placeholder="0" /></div>
+            </div>
+            <div class="form-group"><label>Sodium (mg)</label><input type="number" id="manual-sodium" placeholder="0" /></div>
+            <div class="form-group"><label>Serving size / notes</label><input type="text" id="manual-notes" placeholder="e.g. 1 bowl" /></div>
+            <button class="primary-btn" onclick="addManualEntry()">Add to diary</button>
+          </div>
         </div>
+
+        <!-- Daily totals -->
         <div class="card">
-          <div class="card-title">Today's intake</div>
-          <div class="bar-wrap"><div class="bar-label"><span>Calories</span><span id="cal-bar-label">0 / 2200</span></div><div class="bar-track"><div class="bar-fill green" id="cal-bar" style="width:0%"></div></div></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.75rem;">
+            <div class="card-title" style="margin:0;">Today's totals</div>
+            <div style="display:flex;gap:8px;align-items:center;">
+              <button onclick="changeDate(-1)" style="background:none;border:0.5px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;color:var(--text);font-size:16px;">‹</button>
+              <span id="diary-date-label" style="font-size:13px;color:var(--text2);white-space:nowrap;"></span>
+              <button onclick="changeDate(1)" id="diary-next-btn" style="background:none;border:0.5px solid var(--border);border-radius:6px;padding:4px 10px;cursor:pointer;color:var(--text);font-size:16px;">›</button>
+            </div>
+          </div>
+          <div class="nutrition-grid" id="daily-totals-grid"></div>
+          <div class="bar-wrap" style="margin-top:0.75rem;"><div class="bar-label"><span>Calories</span><span id="cal-bar-label">0 / 2200</span></div><div class="bar-track"><div class="bar-fill green" id="cal-bar" style="width:0%"></div></div></div>
           <div class="bar-wrap"><div class="bar-label"><span>Protein</span><span id="protein-bar-label">0g / 100g</span></div><div class="bar-track"><div class="bar-fill teal" id="protein-bar" style="width:0%"></div></div></div>
-          <div id="meal-history"><div class="empty-state">No meals logged today.</div></div>
         </div>
+
+        <!-- Diary entries grouped by meal -->
+        <div id="diary-by-meal"></div>
+
       </section>
 
       <!-- EXERCISE -->
@@ -215,14 +287,32 @@
         </div>
         <div class="card" id="ai-chat-card">
           <div class="card-title">AI health coach</div>
-          <div class="ai-box" id="ai-response">
-            <div class="ai-msg">👋 Hi! I'm your AI health coach. Ask me anything about your health data and I'll give you personalised insights!</div>
+
+          <!-- Mode toggle -->
+          <div class="pill-row" id="ai-mode-pills" style="margin-bottom:0.75rem;">
+            <button class="pill active" onclick="setAIMode('coach',this)">💬 Health coach</button>
+            <button class="pill" onclick="setAIMode('food',this)">🥗 Log food by talking</button>
           </div>
+
+          <!-- Mode hint -->
+          <div id="ai-mode-hint" style="font-size:12px;color:#888;margin-bottom:0.75rem;line-height:1.5;padding:8px 10px;background:var(--bg);border-radius:8px;">
+            Ask me anything about your health — sleep, exercise, nutrition, mood — and I'll give you personalised insights.
+          </div>
+
+          <!-- Chat window -->
+          <div id="ai-chat-window" style="max-height:340px;overflow-y:auto;margin-bottom:0.75rem;display:flex;flex-direction:column;gap:8px;">
+            <div class="ai-bubble ai-bubble-bot">👋 Hi! I'm your AI health coach. Ask me anything, or switch to <strong>Log food by talking</strong> to tell me what you ate and I'll add it to your diary automatically!</div>
+          </div>
+
           <div class="ai-input-row">
-            <input type="text" id="ai-question" placeholder="Ask about your health..." />
+            <input type="text" id="ai-question" placeholder="Ask about your health..." onkeydown="if(event.key==='Enter')askAI()" />
+            <button id="voice-btn" onclick="toggleVoice()" title="Voice input" style="background:var(--bg);border:0.5px solid var(--border);"><i class="ti ti-microphone" id="voice-icon"></i></button>
             <button onclick="askAI()"><i class="ti ti-send"></i></button>
           </div>
-          <div style="margin-top:0.75rem;">
+          <div id="voice-status" style="font-size:12px;color:#888;margin-top:4px;min-height:16px;text-align:center;"></div>
+
+          <!-- Quick prompts (coach mode) -->
+          <div id="ai-quick-prompts" style="margin-top:0.75rem;">
             <div style="font-size:12px;color:#888;margin-bottom:0.5rem;">Quick questions</div>
             <div class="pill-row" style="flex-wrap:wrap;">
               <button class="pill" onclick="doAI('How is my nutrition this week?')">Nutrition check</button>
@@ -231,8 +321,100 @@
               <button class="pill" onclick="doAI('What patterns do you see in my mood?')">Mood patterns</button>
             </div>
           </div>
-          <div style="margin-top:1rem;padding-top:0.75rem;border-top:0.5px solid #eee;">
+
+          <!-- Food log quick prompts (food mode) -->
+          <div id="ai-food-prompts" style="margin-top:0.75rem;display:none;">
+            <div style="font-size:12px;color:#888;margin-bottom:0.5rem;">Try saying...</div>
+            <div class="pill-row" style="flex-wrap:wrap;">
+              <button class="pill" onclick="doFoodLog('I had scrambled eggs on toast for breakfast')">Eggs on toast</button>
+              <button class="pill" onclick="doFoodLog('I had a protein shake with banana')">Protein shake</button>
+              <button class="pill" onclick="doFoodLog('I had grilled chicken and salad for lunch')">Chicken salad</button>
+              <button class="pill" onclick="doFoodLog('I had a handful of almonds as a snack')">Almonds snack</button>
+            </div>
+          </div>
+
+          <div style="margin-top:1rem;padding-top:0.75rem;border-top:0.5px solid var(--border2);">
             <button class="secondary-btn" onclick="changeApiKey()" style="font-size:12px;">Change API key</button>
+          </div>
+        </div>
+      </section>
+
+      <!-- BLOOD PRESSURE -->
+      <section class="section" id="tab-bp">
+        <div class="card">
+          <div class="card-title">Log blood pressure</div>
+          <div class="form-row">
+            <div class="form-group"><label>Systolic (mmHg)</label><input type="number" id="bp-sys" placeholder="e.g. 120" /></div>
+            <div class="form-group"><label>Diastolic (mmHg)</label><input type="number" id="bp-dia" placeholder="e.g. 80" /></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Pulse (bpm)</label><input type="number" id="bp-pulse" placeholder="e.g. 72" /></div>
+            <div class="form-group"><label>Time</label><input type="time" id="bp-time" /></div>
+          </div>
+          <div class="form-group"><label>Context</label>
+            <div class="pill-row" id="bp-context-pills">
+              <button class="pill active" onclick="selectPill(this,'bp-context-pills')">Resting</button>
+              <button class="pill" onclick="selectPill(this,'bp-context-pills')">After exercise</button>
+              <button class="pill" onclick="selectPill(this,'bp-context-pills')">Morning</button>
+              <button class="pill" onclick="selectPill(this,'bp-context-pills')">Evening</button>
+              <button class="pill" onclick="selectPill(this,'bp-context-pills')">Stressed</button>
+            </div>
+          </div>
+          <div class="form-group"><label>Notes</label><input type="text" id="bp-notes" placeholder="e.g. After coffee" /></div>
+          <button class="primary-btn" onclick="logBP()">Log reading</button>
+        </div>
+        <div class="card" id="bp-status-card" style="display:none;">
+          <div class="card-title">Latest reading</div>
+          <div id="bp-latest"></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Systolic trend (14 days)</div>
+          <div class="chart-wrap"><canvas id="bpSysChart" role="img" aria-label="Systolic BP trend">Systolic blood pressure over 14 days.</canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Diastolic trend (14 days)</div>
+          <div class="chart-wrap"><canvas id="bpDiaChart" role="img" aria-label="Diastolic BP trend">Diastolic blood pressure over 14 days.</canvas></div>
+        </div>
+        <div class="card">
+          <div class="card-title">All readings</div>
+          <div id="bp-history"><div class="empty-state">No readings yet.</div></div>
+        </div>
+      </section>
+
+      <!-- DOCTOR REPORT -->
+      <section class="section" id="tab-report">
+        <div class="card">
+          <div class="card-title">Patient details</div>
+          <div class="form-row">
+            <div class="form-group"><label>Your name</label><input type="text" id="report-name" placeholder="Full name" /></div>
+            <div class="form-group"><label>Date of birth</label><input type="text" id="report-dob" placeholder="e.g. 15 Jan 1985" /></div>
+          </div>
+          <div class="form-row">
+            <div class="form-group"><label>Doctor's name</label><input type="text" id="report-doctor" placeholder="Dr. Smith" /></div>
+            <div class="form-group"><label>Report period</label>
+              <div class="pill-row" id="report-period-pills">
+                <button class="pill active" onclick="selectPill(this,'report-period-pills')">7 days</button>
+                <button class="pill" onclick="selectPill(this,'report-period-pills')">14 days</button>
+                <button class="pill" onclick="selectPill(this,'report-period-pills')">30 days</button>
+              </div>
+            </div>
+          </div>
+          <div class="form-group"><label>Additional notes for doctor</label><textarea id="report-notes" rows="3" placeholder="Any symptoms, concerns, or context you want to include..."></textarea></div>
+          <button class="primary-btn" onclick="generateReport()">Generate full health report PDF</button>
+          <button class="primary-btn" onclick="generateFoodDiaryPDF()" style="background:transparent;color:var(--green);border:0.5px solid var(--green);margin-top:8px;">Generate food diary only PDF</button>
+        </div>
+        <div class="card" style="background:var(--bg);">
+          <div class="card-title">What's included</div>
+          <div style="font-size:14px;color:var(--text2);line-height:1.8;">
+            ✅ Full food diary (every food, meal by meal, with macros)<br>
+            ✅ Daily nutrition totals (calories, protein, carbs, fat, fibre, sugar, sodium)<br>
+            ✅ Blood pressure log (all readings with timestamps)<br>
+            ✅ BP averages and classification<br>
+            ✅ Sleep duration averages<br>
+            ✅ Exercise summary<br>
+            ✅ Weight trend<br>
+            ✅ Mood summary<br>
+            ✅ Medication adherence
           </div>
         </div>
       </section>
@@ -254,6 +436,7 @@
   </div>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
